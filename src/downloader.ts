@@ -113,7 +113,7 @@ export class Downloader {
     const isFinalList = rootManifest.segments.length != 0;
     const url = isFinalList ? this.getListUrl() : new URL(rootManifest.playlists[0].uri, this.getListUrl()).href;
     const segments = isFinalList ? rootManifest.segments : (await downloadAndParseM3U8(url)).segments;
-    return segments.map(s => new URL(s.uri, url).href);
+    return segments.map(s => new URL(s.uri, url).href).filter(s => s.indexOf('/avod/') === -1);
   }
 }
 
