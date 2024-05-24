@@ -1,6 +1,6 @@
 import { spawn } from 'child_process';
 import axios from "axios";
-import { unlinkSync, createWriteStream, existsSync, renameSync, writeFileSync, readFileSync } from 'fs';
+import { statSync, unlinkSync, createWriteStream, existsSync, renameSync, writeFileSync, readFileSync } from 'fs';
 import { JSDOM } from "jsdom";
 
 const m3u8Parser = require("m3u8-parser");
@@ -183,11 +183,21 @@ async function concatSegments(files: string[], outFileName: string) {
     await new Promise(((resolve, reject) => {
         proc.on('close', code => {
             console.log('ffmpeg exited with code', code);
-            if (code === 0) {
-                resolve(code);
-            } else {
+            if (code) {
                 reject(code);
             }
+
+            if (!existsSync(outFileName)) {
+                reject('output file not found');
+            };
+
+            // check output file size (should be at least 1MB)
+            const stats = statSync(outFileName);
+            if (stats.size < 1024 * 1024) {
+                reject('output file too small');
+            }
+
+            resolve(code);
         });
     }))
 }

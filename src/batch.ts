@@ -9,7 +9,9 @@ const [, , range, pageUrlTemplate, nameExtTemplate] = process.argv;
 const m = nameExtTemplate?.match(/(.+)\.(.+)/);
 if (!m || !range || !pageUrlTemplate) {
     console.log("Usage: batchdownvod <range> <pageUrlTemplate> <nameTemplate.ext>");
-    console.log("Example: batchdownvod 1-10 https://www.example.com/%d.mp4 %d.mp4");
+    console.log("Example:");
+    console.log("batchdownvod 1-10 https://www.example.com/%d.mp4 %d.mp4");
+    console.log("batchdownvod 22 https://www.example.com/sample-series-%d.mp4 'Sample Series (Episode %02d).mp4'");
     process.exit(1);
 }
 
