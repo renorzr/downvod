@@ -1,0 +1,190 @@
+# downvod
+
+使用 TypeScript 编写的 HLS 视频下载命令行工具。解析 `.m3u8` 播放列表或受支持的视频页面，逐个下载分片，再通过 FFmpeg 合并为视频文件。
+
+提供两个命令：
+
+- `downvod`：下载一个视频。
+- `batchdownvod`：按编号模板顺序下载多集视频。
+
+## 环境要求
+
+- Node.js 22 或更新版本，及 npm。
+- FFmpeg，且 `ffmpeg` 命令已加入 `PATH`。
+- Bash（使用 `install.sh` 时需要）。
+
+检查环境：
+
+```bash
+node --version
+npm --version
+ffmpeg -version
+```
+
+Ubuntu / Debian 可通过 `sudo apt-get update && sudo apt-get install -y ffmpeg` 安装 FFmpeg；macOS 使用 `brew install ffmpeg`。Node.js 请单独安装满足版本要求的版本。
+
+## 安装
+
+推荐通过 npm 全局安装：
+
+```bash
+npm install --global @renorzr/downvod
+```
+
+安装后直接使用 `downvod` 和 `batchdownvod`，无需克隆仓库或安装 TypeScript。FFmpeg 仍需单独安装并加入 `PATH`。
+
+也可安装到项目中，通过 `npx` 调用：
+
+```bash
+npm install @renorzr/downvod
+npx downvod 'https://example.com/video/index.m3u8' 'movie.mp4'
+npx batchdownvod '1-3' 'https://example.com/series/%d/index.m3u8' 'Series-%02d.mp4'
+```
+
+### 从源码安装
+
+```bash
+git clone https://github.com/renorzr/downvod.git
+cd downvod
+./install.sh
+```
+
+脚本检查环境，按 `package-lock.json` 安装依赖，编译 TypeScript，然后将构建产物打包安装到 npm 的全局目录。安装成功后可直接使用 `downvod` 和 `batchdownvod`；已安装的命令不依赖源码目录，可以移动或删除源码。
+
+如果默认全局目录不可写，指定当前用户的安装目录：
+
+```bash
+./install.sh --prefix "$HOME/.local"
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+将上面的 `export` 写入 `~/.bashrc` 或 `~/.zshrc` 可使配置在新终端中生效。`--prefix` 也支持相对路径（相对于执行脚本时的目录）。查看脚本帮助：`./install.sh --help`。
+
+也可以仅在源码目录编译运行：
+
+```bash
+npm ci --include=dev
+npm run build
+node dist/index.js 'https://example.com/video/index.m3u8' 'movie.mp4'
+node dist/batch.js '1-3' 'https://example.com/series/%d/index.m3u8' 'Series-%02d.mp4'
+```
+
+`npm ci` 的 `prepare` 生命周期会自动编译；`npm run build` 用于修改源码后重新编译，不执行全局安装。
+
+## 下载单个视频
+
+```bash
+downvod '<播放列表或视频页面 URL>' '<文件名>.<扩展名>'
+```
+
+直接传入播放列表：
+
+```bash
+downvod 'https://example.com/video/index.m3u8' 'movie.mp4'
+```
+
+也可传入受支持的页面：
+
+```bash
+downvod 'https://example.com/watch/123' 'movie.mp4'
+```
+
+页面需在内联 `<script>` 中包含工具可解析的 JSON 对象，其中 `url` 指向 m3u8。工具不会执行页面 JavaScript，也无法解析所有视频网站。
+
+结果保存在当前工作目录。如果目标文件已存在，该视频会直接跳过。当前单个下载命令按 `.` 拆分文件名，请使用 `movie.mp4` 这类只有一个点的简单文件名，并在要保存文件的目录中执行命令。
+
+## 批量下载
+
+```bash
+batchdownvod '<范围>' '<URL 模板>' '<文件名模板>.<扩展名>'
+```
+
+- 范围 `1-10` 表示第 1 到第 10 集（包含两端）；`22` 表示第 1 到第 22 集。
+- URL 模板中的第一个 `%d` 替换为当前编号，不支持 `%02d` 补零。
+- 文件名模板支持 `printf` 数字格式，如 `%d`、`%02d`、`%03d`。
+
+```bash
+batchdownvod '1-10' \
+  'https://example.com/series/%d/index.m3u8' \
+  'Series-%02d.mp4'
+
+batchdownvod '22' \
+  'https://example.com/series/episode-%d' \
+  'Series (Episode %02d).mp4'
+```
+
+工具会按文件名模板的第一个空白或点之前的内容创建子目录，并在其中保存文件。例如，第一个命令输出到 `Series-%02d/Series-01.mp4` 至 `Series-%02d/Series-10.mp4`；第二个命令输出到 `Series/Series (Episode 01).mp4` 等文件。目录中的 `%02d` 不会被替换。
+
+当前批量命令通过 shell 的 `printf` 处理文件名模板，请只使用自己编写并信任的简单模板，避免引号、反引号、`$()` 等 shell 特殊内容。
+
+## 续传与临时文件
+
+下载时，工具在输出目录生成：
+
+- `<文件名>_urls.json`：分片地址缓存。
+- `<文件名>.seg0001.ts` 等：已完成的分片。
+- `<文件名>.seg0001.ts.downloading` 等：下载中的临时分片。
+
+中断后，在同一目录使用相同参数重跑，会复用地址缓存并跳过已经完成的分片。每个分片最多尝试两次；只要还有分片失败，就不会合并。全部分片成功且 FFmpeg 合并通过检查后，会删除地址缓存和已完成的 `.ts` 分片。
+
+分片地址过期时，可删除对应的 `_urls.json` 后重新获取。切换视频时应使用新文件名，或先清理旧缓存和分片，避免混用内容。FFmpeg 合并失败可能留下目标文件；确认它无效后，先删除目标文件再重试，否则会被“文件已存在”检查跳过。
+
+## 当前限制与排查
+
+- 主要面向未加密的 HLS MPEG-TS 分片；不支持直接下载普通 MP4 文件、DRM、HLS 加密、fMP4 初始化分片或实时录制。
+- 直接传入的播放列表 URL 必须以 `m3u8` 结尾；当前不能直接识别带查询参数的 m3u8 URL。
+- 主播放列表仅选择第一个子播放列表，不提供清晰度或独立音轨选择。
+- 地址中包含 `/avod/` 的分片会被过滤；这是固定规则，可能不适用于所有源。
+- FFmpeg 使用流复制合并，不转码；输出扩展名需与源音视频编码兼容。
+- 合并结果小于 1 MiB 时会被判定失败，短视频也可能触发这一检查。
+- 不提供登录、Cookie、自定义请求头或 Referer 配置；需要这些信息的源可能返回 401 / 403。
+- 出现 `command not found` 时检查 npm 全局目录：`npm prefix -g`，并确认其 `bin` 子目录已加入 `PATH`。
+- 出现 `spawn ffmpeg ENOENT` 时检查 `ffmpeg -version` 是否能运行。
+
+请仅下载有权访问和保存的视频。
+
+## 开发与更新
+
+```bash
+npm ci --include=dev
+npm run build
+```
+
+源码位于 `src/`，编译产物位于 `dist/`。依赖版本由 `package-lock.json` 固定，修改依赖后应一并提交锁文件。
+
+通过 npm 安装的命令可直接更新：
+
+```bash
+npm install --global @renorzr/downvod@latest
+```
+
+从源码安装的命令，拉取源码后重新运行安装脚本，保持与首次安装相同的 `--prefix`。
+
+```bash
+git pull
+./install.sh --prefix "$HOME/.local"
+```
+
+卸载 npm 全局安装的命令：
+
+```bash
+npm uninstall --global @renorzr/downvod
+```
+
+从自定义目录卸载：
+
+```bash
+npm uninstall --global --prefix "$HOME/.local" @renorzr/downvod
+```
+
+## 发布到 npm
+
+维护者在源码目录安装开发依赖并登录 npm 后发布：
+
+```bash
+npm ci --include=dev
+npm login
+npm publish
+```
+
+发布时自动编译，包中包含 `dist/`、README 和许可证。后续发布前需要更新 `package.json` 和锁文件中的版本号（例如 `npm version patch`）；同一版本不能重复发布。
