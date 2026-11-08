@@ -13,7 +13,7 @@ export class Downloader {
     listUrl?: string;
     maxDuration: number = 0;
 
-    constructor(name: string, ext: string) {
+    constructor(name: string, ext: string, private readonly excludeChunkPatterns: RegExp[] = []) {
         this.name = name;
         this.ext = ext;
     }
@@ -26,16 +26,23 @@ export class Downloader {
         }
 
         const { urlsFileName, urls } = await this.pullSegUrls(pageUrl);
+        const includedUrls = urls.filter(url => !this.isExcludedChunk(url));
+        if (!includedUrls.length) {
+            throw new Error('No segments remain to download after applying chunk exclusions.');
+        }
+        if (includedUrls.length < urls.length) {
+            console.log(`Excluded ${urls.length - includedUrls.length}/${urls.length} segments matching --exclude-chunk.`);
+        }
 
         console.log("Segment URLs:");
-        urls.slice(0, 3).forEach(url => console.log(url));
-        if (urls.length > 3) {
-            console.log(`... and ${urls.length - 3} more urls.`);
+        includedUrls.slice(0, 3).forEach(url => console.log(url));
+        if (includedUrls.length > 3) {
+            console.log(`... and ${includedUrls.length - 3} more urls.`);
         }
         const files = await this.downloadUrls(urls);
 
-        if (files.length < urls.length) {
-            console.log(`Download incompleted: ${files.length}/${urls.length} , abort.`)
+        if (files.length < includedUrls.length) {
+            console.log(`Download incompleted: ${files.length}/${includedUrls.length} , abort.`)
             return;
         }
 
@@ -51,6 +58,10 @@ export class Downloader {
         const files = [];
         for (const i in urls) {
             const url = urls[i];
+            if (this.isExcludedChunk(url)) {
+                continue;
+            }
+            // Keep the original index so cached files still refer to the same URLs.
             const segNum = parseInt(i) + 1;
             const fileName = `${this.name}.seg${segNum.toString().padStart(4, '0')}.ts`;
             if (existsSync(fileName)) {
@@ -69,6 +80,13 @@ export class Downloader {
             }
         }
         return files;
+    }
+
+    private isExcludedChunk(url: string) {
+        return this.excludeChunkPatterns.some(pattern => {
+            pattern.lastIndex = 0;
+            return pattern.test(url);
+        });
     }
 
     async pullSegUrls(pageUrl: string) {

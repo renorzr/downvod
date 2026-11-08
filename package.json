@@ -1,6 +1,6 @@
 {
     "name": "@renorzr/downvod",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "description": "Download HLS video segments from m3u8 playlists or supported video pages and merge them with FFmpeg.",
     "author": "Reno Ren",
     "license": "MIT",
@@ -49,6 +49,7 @@
     },
     "scripts": {
         "build": "tsc",
+        "test": "npm run build && node --test test/*.test.js",
         "prepare": "npm run build"
     }
 }
