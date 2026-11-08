@@ -4,17 +4,24 @@ import { execSync } from "child_process";
 import { Downloader } from "./downloader";
 import { mkdirSync } from 'fs';
 import { chdir } from 'process';
-import { parseCliArgs } from "./cli";
+import { parseCliArgs, VERSION } from "./cli";
 
 async function main() {
-    const { positionals, excludeChunkPatterns, help } = parseCliArgs(process.argv.slice(2));
+    const { positionals, excludeChunkPatterns, keepChunks, version, help } = parseCliArgs(process.argv.slice(2));
+    if (version) {
+        console.log(VERSION);
+        return;
+    }
+    console.log(`batchdownvod ${VERSION}`);
     const [range, pageUrlTemplate, nameExtTemplate] = positionals;
 
     // name should match the pattern: <name>.<ext>
     const m = nameExtTemplate?.match(/(.+)\.(.+)/);
     if (help || positionals.length !== 3 || !m || !range || !pageUrlTemplate) {
-        console.log("Usage: batchdownvod <range> <pageUrlTemplate> <nameTemplate.ext> [--exclude-chunk <regexp>]");
+        console.log("Usage: batchdownvod <range> <pageUrlTemplate> <nameTemplate.ext> [--exclude-chunk <regexp>] [--keep-chunks]");
         console.log("  --exclude-chunk <regexp>  Exclude matching segment URLs (repeatable)");
+        console.log("  --keep-chunks              Keep segments and URL cache after merging");
+        console.log("  -v, --version              Print the version and exit");
         console.log("Example:");
         console.log("batchdownvod 1-10 https://www.example.com/%d/index.m3u8 'Series-%02d.mp4'");
         process.exitCode = help ? 0 : 1;
@@ -33,7 +40,7 @@ async function main() {
         const name = format(nameTemplate, i);
         const ext = format(extTemplate, i);
         console.log("pageUrl=", pageUrl, "name=", name, "ext=", ext);
-        const downloader = new Downloader(name, ext, excludeChunkPatterns);
+        const downloader = new Downloader(name, ext, excludeChunkPatterns, keepChunks);
         await downloader.start(pageUrl);
     }
 }

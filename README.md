@@ -74,7 +74,7 @@ node dist/batch.js '1-3' 'https://example.com/series/%d/index.m3u8' 'Series-%02d
 ## 下载单个视频
 
 ```bash
-downvod '<播放列表或视频页面 URL>' '<文件名>.<扩展名>' [--exclude-chunk '<正则表达式>']
+downvod '<播放列表或视频页面 URL>' '<文件名>.<扩展名>' [--exclude-chunk '<正则表达式>'] [--keep-chunks]
 ```
 
 直接传入播放列表：
@@ -96,7 +96,7 @@ downvod 'https://example.com/watch/123' 'movie.mp4'
 ## 批量下载
 
 ```bash
-batchdownvod '<范围>' '<URL 模板>' '<文件名模板>.<扩展名>' [--exclude-chunk '<正则表达式>']
+batchdownvod '<范围>' '<URL 模板>' '<文件名模板>.<扩展名>' [--exclude-chunk '<正则表达式>'] [--keep-chunks]
 ```
 
 - 范围 `1-10` 表示第 1 到第 10 集（包含两端）；`22` 表示第 1 到第 22 集。
@@ -147,9 +147,31 @@ batchdownvod '1-10' 'https://example.com/series/%d/index.m3u8' 'Series-%02d.mp4'
 - `<文件名>.seg0001.ts` 等：已完成的分片。
 - `<文件名>.seg0001.ts.downloading` 等：下载中的临时分片。
 
-中断后，在同一目录使用相同参数重跑，会复用地址缓存并跳过已经完成的分片。每个分片最多尝试两次；只要还有分片失败，就不会合并。全部分片成功且 FFmpeg 合并通过检查后，会删除地址缓存和已完成的 `.ts` 分片。
+中断后，在同一目录使用相同参数重跑，会复用地址缓存并跳过已经完成的分片。每个分片最多尝试两次；只要还有分片失败，就不会合并。全部分片成功且 FFmpeg 合并通过检查后，默认会删除地址缓存和已完成的 `.ts` 分片。
+
+加上 `--keep-chunks` 可在合并成功后保留分片及 `_urls.json` 缓存，两个命令都支持，也可与 `--exclude-chunk` 同时使用：
+
+```bash
+downvod 'https://example.com/index.m3u8' 'movie.mp4' --keep-chunks
+
+batchdownvod '1-10' 'https://example.com/series/%d/index.m3u8' 'Series-%02d.mp4' \
+  --keep-chunks '--exclude-chunk=adv\.com\/'
+```
+
+保留的分片可用于后续重新合并；重跑前先移动或删除目标视频，否则仍会因目标文件已存在而跳过。合并失败时，无论是否设置此开关都会保留分片和缓存。
 
 分片地址过期时，可删除对应的 `_urls.json` 后重新获取。切换视频时应使用新文件名，或先清理旧缓存和分片，避免混用内容。FFmpeg 合并失败可能留下目标文件；确认它无效后，先删除目标文件再重试，否则会被“文件已存在”检查跳过。
+
+## 查看版本
+
+两个命令正常运行时会首先显示命令名称和版本。使用 `--version` 或 `-v` 仅输出版本号并退出，无需下载参数，也不会创建目录或发起下载：
+
+```bash
+downvod --version
+batchdownvod -v
+```
+
+版本号读取自安装包的 `package.json`，与 npm 发布版本一致。完整选项可通过 `downvod --help` 或 `batchdownvod --help` 查看。
 
 ## 当前限制与排查
 

@@ -111,3 +111,56 @@ test('fails before downloading or merging when every segment is excluded', async
     assert.equal(existsSync(`${name}.mp4`), false);
     assert.equal(existsSync(`${name}_urls.json`), true);
 });
+
+test('keep-chunks preserves original segments and URL cache for a later merge with different exclusions', async t => {
+    const name = temporaryName(t);
+    const urls = ['https://video.test/first.ts', 'https://adv.com/ad.ts', 'https://video.test/last.ts'];
+    writeFileSync(`${name}_urls.json`, JSON.stringify(urls));
+    for (let i = 1; i <= 3; i++) writeFileSync(`${name}.seg000${i}.ts`, String(i));
+    const concatInputs = [];
+    t.mock.method(childProcess, 'spawn', (command, args) => {
+        assert.equal(command, 'ffmpeg');
+        concatInputs.push(args[1]);
+        writeFileSync(args.at(-1), Buffer.alloc(1024 * 1024));
+        const proc = new EventEmitter();
+        proc.stdout = new PassThrough();
+        proc.stderr = new PassThrough();
+        queueMicrotask(() => proc.emit('close', 0));
+        return proc;
+    });
+
+    await new Downloader(name, 'mp4', [/adv\.com\//], true).start('https://no-network.invalid/index.m3u8');
+    assert.deepEqual(JSON.parse(readFileSync(`${name}_urls.json`, 'utf8')), urls);
+    for (let i = 1; i <= 3; i++) assert.equal(readFileSync(`${name}.seg000${i}.ts`, 'utf8'), String(i));
+    assert.equal(existsSync(`${name}.mp4`), true);
+
+    rmSync(`${name}.mp4`);
+    // A second merge can include all original chunks and use the default cleanup.
+    await new Downloader(name, 'mp4').start('https://no-network.invalid/index.m3u8');
+    assert.deepEqual(concatInputs, [
+        `concat:${name}.seg0001.ts|${name}.seg0003.ts`,
+        `concat:${name}.seg0001.ts|${name}.seg0002.ts|${name}.seg0003.ts`
+    ]);
+    assert.equal(existsSync(`${name}_urls.json`), false);
+    for (let i = 1; i <= 3; i++) assert.equal(existsSync(`${name}.seg000${i}.ts`), false);
+});
+
+for (const keepChunks of [false, true]) {
+    test(`failed merge preserves chunks and URL cache (keep-chunks=${keepChunks})`, async t => {
+        const name = temporaryName(t);
+        const urls = ['https://video.test/first.ts'];
+        writeFileSync(`${name}_urls.json`, JSON.stringify(urls));
+        writeFileSync(`${name}.seg0001.ts`, 'original segment');
+        t.mock.method(childProcess, 'spawn', (command, args) => {
+            writeFileSync(args.at(-1), Buffer.alloc(1024 * 1024));
+            const proc = new EventEmitter();
+            proc.stdout = new PassThrough();
+            proc.stderr = new PassThrough();
+            queueMicrotask(() => proc.emit('close', 1));
+            return proc;
+        });
+        await assert.rejects(new Downloader(name, 'mp4', [], keepChunks).start('https://no-network.invalid/index.m3u8'), error => error === 1);
+        assert.equal(readFileSync(`${name}.seg0001.ts`, 'utf8'), 'original segment');
+        assert.deepEqual(JSON.parse(readFileSync(`${name}_urls.json`, 'utf8')), urls);
+    });
+}

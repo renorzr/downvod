@@ -13,7 +13,7 @@ export class Downloader {
     listUrl?: string;
     maxDuration: number = 0;
 
-    constructor(name: string, ext: string, private readonly excludeChunkPatterns: RegExp[] = []) {
+    constructor(name: string, ext: string, private readonly excludeChunkPatterns: RegExp[] = [], private readonly keepChunks: boolean = false) {
         this.name = name;
         this.ext = ext;
     }
@@ -48,6 +48,11 @@ export class Downloader {
 
         console.log('concat all', files.length, 'segments');
         await concatSegments(files, outFileName);
+
+        if (this.keepChunks) {
+            console.log('keeping all', files.length, 'segments and URL cache');
+            return;
+        }
 
         console.log('clean all', files.length, 'segments');
         files.forEach(file => unlinkSync(file));
