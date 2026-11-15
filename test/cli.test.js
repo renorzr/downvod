@@ -132,3 +132,52 @@ test('SIGINT commits the interrupted task and retains completed segments and URL
     assert.ok(readdirSync(dir).includes('movie_urls.json'));
     assert.ok(!readdirSync(dir).includes('movie.mp4'));
 });
+
+for (const entry of ['index', 'batch']) {
+    test(`${entry} exits after ten failures even when HTTP error bodies never finish`, { timeout: 10000 }, async t => {
+        const dir = mkdtempSync(join(tmpdir(), 'downvod-abort-'));
+        t.after(() => rmSync(dir, { recursive: true, force: true }));
+        const requests = [];
+        const server = createServer((req, res) => {
+            requests.push(req.url);
+            res.writeHead(403);
+            res.write('Access denied');
+            // Keep the error body open to catch leaked response streams in the CLI.
+        });
+        await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+        t.after(() => {
+            server.closeAllConnections();
+            return new Promise(resolve => server.close(resolve));
+        });
+        const baseUrl = `http://127.0.0.1:${server.address().port}`;
+        const urls = Array.from({ length: 12 }, (_, i) => `${baseUrl}/${i + 1}.ts`);
+        const targetDir = entry === 'index' ? dir : join(dir, 'Series-%02d');
+        mkdirSync(targetDir, { recursive: true });
+        const name = entry === 'index' ? 'movie' : 'Series-01';
+        writeFileSync(join(targetDir, `${name}_urls.json`), JSON.stringify(urls));
+        writeFileSync(join(targetDir, `${name}.seg0001.ts`), 'complete');
+        const args = entry === 'index'
+            ? [`${baseUrl}/index.m3u8`, 'movie.mp4']
+            : ['1-3', `${baseUrl}/%d/index.m3u8`, 'Series-%02d.mp4'];
+        const proc = spawn(process.execPath, [resolve('dist', `${entry}.js`), ...args], {
+            cwd: dir, timeout: 5000, killSignal: 'SIGKILL',
+            env: { ...process.env, NO_PROXY: '127.0.0.1' }
+        });
+        t.after(() => { if (proc.exitCode === null && proc.signalCode === null) proc.kill('SIGKILL'); });
+        let stdout = '';
+        let stderr = '';
+        proc.stdout.on('data', chunk => stdout += chunk);
+        proc.stderr.on('data', chunk => stderr += chunk);
+        const result = await new Promise((resolve, reject) => {
+            proc.once('error', reject);
+            proc.once('close', (code, signal) => resolve({ code, signal }));
+        });
+        assert.match(stderr, /Download aborted: 10 consecutive segments failed/);
+        assert.deepEqual(result, { code: 1, signal: null }, 'CLI must exit without waiting for error bodies to finish');
+        assert.deepEqual(requests, Array.from({ length: 10 }, (_, i) => [`/${i + 2}.ts`, `/${i + 2}.ts`]).flat());
+        assert.doesNotMatch(stdout, /Merge segments|\[2\/3\] Start/);
+        assert.ok(readdirSync(targetDir).includes(`${name}.seg0001.ts`));
+        assert.ok(readdirSync(targetDir).includes(`${name}_urls.json`));
+        assert.ok(!readdirSync(targetDir).includes(`${name}.mp4`));
+    });
+}

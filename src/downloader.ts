@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import axios from 'axios';
 import { statSync, unlinkSync, createWriteStream, existsSync, renameSync, writeFileSync, readFileSync } from 'fs';
 import { pipeline } from 'stream/promises';
+import { Readable } from 'stream';
 import { createInterface } from 'readline';
 import { JSDOM } from 'jsdom';
 import { TaskOutput, bytes, elapsed, errorMessage } from './output';
@@ -162,6 +163,10 @@ export class Downloader {
             renameSync(downloadingFileName, fileName);
             return duration;
         } catch (error) {
+            // Axios rejects HTTP errors before pipeline can own and close the response stream.
+            if (axios.isAxiosError(error) && error.response?.data instanceof Readable) {
+                error.response.data.destroy();
+            }
             this.lastDownloadError = errorMessage(error);
             this.output.event(`Download error: ${errorMessage(error)}`);
             return false;

@@ -38,7 +38,7 @@ class Terminal {
     get text() { return this.lines.join('\n'); }
 }
 
-test('live task stays four rows, rotates events and commits only its summary', async t => {
+test('live task stays six rows, rotates four events and commits only its summary', async t => {
     const terminal = new Terminal();
     const output = new TaskOutput(terminal, true);
     t.after(() => output.dispose());
@@ -48,18 +48,20 @@ test('live task stays four rows, rotates events and commits only its summary', a
     output.event('first event');
     output.event('second event');
     output.event('third event');
+    output.event('fourth event');
+    output.event('fifth event');
     await delay(130);
-    assert.equal(terminal.row, 5, terminal.text);
+    assert.equal(terminal.row, 7, terminal.text);
     assert.match(terminal.text, /2\/100/);
     assert.match(terminal.text, /Receiving second segment/);
     assert.doesNotMatch(terminal.text, /first event/);
-    assert.match(terminal.text, /second event[\s\S]*third event/);
+    assert.match(terminal.text, /second event[\s\S]*third event[\s\S]*fourth event[\s\S]*fifth event/);
     output.update('80/100', 'Receiving later segment');
     await delay(130);
-    assert.equal(terminal.row, 5, terminal.text);
+    assert.equal(terminal.row, 7, terminal.text);
     assert.doesNotMatch(terminal.text, /Receiving second segment/);
     output.event('segment retry', true);
-    assert.equal(terminal.row, 5, 'important events wait until the task completes');
+    assert.equal(terminal.row, 7, 'important events wait until the task completes');
     output.finish('100 downloaded');
     assert.equal(terminal.row, 3, terminal.text);
     assert.match(terminal.text, /^History\n! segment retry\n✓ 100 downloaded/);
@@ -99,12 +101,20 @@ test('long CJK text and control characters cannot wrap or inject terminal output
     output.activity('中文'.repeat(30) + '\x1b[2J\nInjected');
     output.event('safe\r\nmessage\x1b[31m');
     await delay(130);
-    assert.equal(terminal.row, 4);
+    assert.equal(terminal.row, 6);
     assert.doesNotMatch(terminal.chunks.join(''), /\x1b\[2J|\x1b\[31m/);
     const detail = terminal.lines[1];
     const cells = Array.from(detail).reduce((n, char) => n + (/[中文]/.test(char) ? 2 : 1), 0);
     assert.ok(cells < terminal.columns, detail);
     assert.match(detail, /…$/);
+    terminal.rows = 6;
+    await delay(130);
+    assert.equal(terminal.hidden, false, 'six live rows need at least seven terminal rows');
+    const rowBeforeResume = terminal.row;
+    terminal.rows = 7;
+    await delay(130);
+    assert.equal(terminal.hidden, true, 'live rendering resumes when all six rows fit');
+    assert.equal(terminal.row, rowBeforeResume + 6);
     terminal.columns = 10;
     await delay(130);
     assert.equal(terminal.hidden, false, 'tiny terminal disables live rendering');

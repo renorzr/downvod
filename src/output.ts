@@ -1,5 +1,8 @@
 import { stripVTControlCharacters } from 'util';
 
+const EVENT_LINES = 4;
+const TASK_LINES = 2 + EVENT_LINES;
+
 export interface OutputStream {
     write(text: string): unknown;
     isTTY?: boolean;
@@ -69,7 +72,7 @@ export class TaskOutput {
         private readonly interactive = Boolean(stream.isTTY && !process.env.CI && process.env.TERM !== 'dumb')) {}
 
     private get dynamic(): boolean {
-        return this.interactive && (this.stream.columns ?? 80) >= 20 && (this.stream.rows ?? 24) >= 5;
+        return this.interactive && (this.stream.columns ?? 80) >= 20 && (this.stream.rows ?? 24) > TASK_LINES;
     }
 
     begin(title: string) {
@@ -99,7 +102,7 @@ export class TaskOutput {
 
     event(message: string, important = false) {
         this.events.push(`${new Date().toTimeString().slice(0, 8)}  ${clean(message)}`);
-        this.events = this.events.slice(-2);
+        this.events = this.events.slice(-EVENT_LINES);
         if (important) {
             if (this.interactive && this.title) this.importantEvents.push(message);
             else this.log(`! ${message}`);
@@ -166,8 +169,7 @@ export class TaskOutput {
         const lines = [
             `${spinner} ${this.title}${this.status ? ' · ' + this.status : ''} · ${elapsed(Date.now() - this.started)}`,
             `  ${this.detail}`,
-            `  ${this.events[0] ?? ''}`,
-            `  ${this.events[1] ?? ''}`
+            ...Array.from({ length: EVENT_LINES }, (_, i) => `  ${this.events[i] ?? ''}`)
         ].map(line => fit(line, (this.stream.columns ?? 80) - 1));
         this.stream.write(lines.join('\n') + '\n');
         this.drawnWidths = lines.map(line => Array.from(line).reduce((sum, char) => sum + charWidth(char), 0));
