@@ -2,7 +2,8 @@ const assert = require('node:assert/strict');
 const { mkdtempSync, mkdirSync, readdirSync, writeFileSync, rmSync } = require('node:fs');
 const { tmpdir } = require('node:os');
 const { join, resolve } = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawnSync, spawn } = require('node:child_process');
+const { createServer } = require('node:http');
 const { test } = require('node:test');
 const { parseCliArgs } = require('../dist/cli');
 const { version } = require('../package.json');
@@ -93,3 +94,41 @@ for (const [entry, positionals] of [
         assert.match(result.stdout, /file exists:/);
     });
 }
+
+test('SIGINT commits the interrupted task and retains completed segments and URL cache', { timeout: 10000 }, async t => {
+    const dir = mkdtempSync(join(tmpdir(), 'downvod-interrupt-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    let requested;
+    const receiving = new Promise(resolve => requested = resolve);
+    const server = createServer((req, res) => {
+        res.writeHead(200, { 'Content-Length': 10000 });
+        res.write('partial');
+        requested();
+    });
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    t.after(() => {
+        server.closeAllConnections();
+        return new Promise(resolve => server.close(resolve));
+    });
+    const urls = [`http://127.0.0.1:${server.address().port}/first.ts`, `http://127.0.0.1:${server.address().port}/slow.ts`];
+    writeFileSync(join(dir, 'movie_urls.json'), JSON.stringify(urls));
+    writeFileSync(join(dir, 'movie.seg0001.ts'), 'complete');
+    const proc = spawn(process.execPath, [resolve('dist/index.js'), 'https://unused.invalid/index.m3u8', 'movie.mp4'], { cwd: dir });
+    t.after(() => { if (proc.exitCode === null && proc.signalCode === null) proc.kill('SIGKILL'); });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', chunk => stdout += chunk);
+    proc.stderr.on('data', chunk => stderr += chunk);
+    const exit = new Promise((resolve, reject) => {
+        proc.once('error', reject);
+        proc.once('close', (code, signal) => resolve({ code, signal }));
+    });
+    await receiving;
+    proc.kill('SIGINT');
+    assert.deepEqual(await exit, { code: 130, signal: null }, stderr);
+    assert.match(stdout, /✗ Download segments · Interrupted/);
+    assert.doesNotMatch(stdout + stderr, /\x1b|\r/);
+    assert.ok(readdirSync(dir).includes('movie.seg0001.ts'));
+    assert.ok(readdirSync(dir).includes('movie_urls.json'));
+    assert.ok(!readdirSync(dir).includes('movie.mp4'));
+});

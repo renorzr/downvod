@@ -2,6 +2,7 @@
 
 import { Downloader } from "./downloader";
 import { parseCliArgs, VERSION } from "./cli";
+import { TaskOutput } from './output';
 
 async function main() {
   const { positionals, excludeChunkPatterns, keepChunks, version, help } = parseCliArgs(process.argv.slice(2));
@@ -21,9 +22,15 @@ async function main() {
     return;
   }
 
-  console.log("pageUrl=", pageUrl, "name=", name, "ext=", ext);
-  const downloader = new Downloader(name, ext, excludeChunkPatterns, keepChunks);
-  await downloader.start(pageUrl);
+  const output = new TaskOutput();
+  const dispose = output.installProcessHandlers();
+  try {
+    output.log(`Start ${name}.${ext}`);
+    const downloader = new Downloader(name, ext, excludeChunkPatterns, keepChunks, output);
+    await downloader.start(pageUrl);
+  } finally {
+    dispose();
+  }
 }
 
 main().catch(error => {

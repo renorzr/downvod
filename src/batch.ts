@@ -5,6 +5,7 @@ import { Downloader } from "./downloader";
 import { mkdirSync } from 'fs';
 import { chdir } from 'process';
 import { parseCliArgs, VERSION } from "./cli";
+import { TaskOutput } from './output';
 
 async function main() {
     const { positionals, excludeChunkPatterns, keepChunks, version, help } = parseCliArgs(process.argv.slice(2));
@@ -35,13 +36,19 @@ async function main() {
     const [from, to] = (range.indexOf('-') == -1 ? ['1', range] : range.split("-")).map(x => parseInt(x));
     const [, nameTemplate, extTemplate] = m;
 
-    for (let i = from; i <= to; i++) {
-        const pageUrl = pageUrlTemplate.replace("%d", i.toString());
-        const name = format(nameTemplate, i);
-        const ext = format(extTemplate, i);
-        console.log("pageUrl=", pageUrl, "name=", name, "ext=", ext);
-        const downloader = new Downloader(name, ext, excludeChunkPatterns, keepChunks);
-        await downloader.start(pageUrl);
+    const output = new TaskOutput();
+    const dispose = output.installProcessHandlers();
+    try {
+        for (let i = from; i <= to; i++) {
+            const pageUrl = pageUrlTemplate.replace("%d", i.toString());
+            const name = format(nameTemplate, i);
+            const ext = format(extTemplate, i);
+            output.log(`[${i - from + 1}/${to - from + 1}] Start ${name}.${ext}`);
+            const downloader = new Downloader(name, ext, excludeChunkPatterns, keepChunks, output);
+            await downloader.start(pageUrl);
+        }
+    } finally {
+        dispose();
     }
 }
 
